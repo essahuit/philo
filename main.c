@@ -2,14 +2,17 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <sys/time.h>
+
 
 typedef struct s_info
 {
-    long    nb_philo;
-    long    time_die;
-    long    time_eat;
-    long    time_sleep;
-    long    nb_must_eat;
+    long            nb_philo;
+    long            time_die;
+    long            time_eat;
+    long            time_sleep;
+    long            nb_must_eat;
+    long            nb_philo_eat;
 } t_info;
 
 typedef struct s_philo
@@ -19,6 +22,8 @@ typedef struct s_philo
     pthread_mutex_t *forks;
     pthread_mutex_t *msg;
     pthread_t       *threads;
+    long            last_meal;
+    int             nb_eat;
 } t_philo;
 
 
@@ -27,6 +32,36 @@ int	ft_isdigit(int c)
 	if (c >= '0' && c <= '9')
 		return (1);
 	return (0);
+}
+
+long long   timestamp(t_info  *philo_info)
+{
+    struct      timeval tv;
+    long        mili;
+
+    gettimeofday(&tv, NULL);
+    mili = tv.tv_sec * 1000LL + tv.tv_usec / 1000;
+    return (mili);
+}
+
+void    ft_usleep(long x, t_info  *philo_info)
+{
+    long    y;
+
+    y = timestamp(philo_info);
+    while (1)
+    {
+        if (timestamp(philo_info) - y >= x)
+            break;
+        usleep(400);
+    }
+}
+
+void    u_printf(t_philo *philo_s, char *str)
+{
+    pthread_mutex_lock(philo_s->msg);
+    printf("%s  %zu\n",str, philo_s->id);
+    pthread_mutex_unlock(philo_s->msg);
 }
 
 int	ft_atoi(const char *str)
@@ -68,6 +103,7 @@ int init_info(int argc, char **argv, t_info *philo_info)
     philo_info->time_die = ft_atoi(argv[2]);
     philo_info->time_eat = ft_atoi(argv[3]);
     philo_info->time_sleep = ft_atoi(argv[4]);
+    philo_info->nb_philo_eat = 0;
     if (argc == 6)
         philo_info->nb_must_eat = ft_atoi(argv[5]);
     else
@@ -104,10 +140,12 @@ t_philo *create_philos(t_info *philo_info, pthread_mutex_t *forks)
     while (i < philo_info->nb_philo)
     {
         philo_s[i].id = i;
+        philo_s[i].nb_eat = 0;
         philo_s[i].forks = forks;
         philo_s[i].msg = &msg;
         philo_s[i].threads = threads;
         philo_s[i].philo_info = philo_info;
+        philo_s[i].last_meal = -1;
         i++;
     }
     return (philo_s);
@@ -123,14 +161,16 @@ void    thinking(t_philo *philo_s)
 void    eating(t_philo *philo_s)
 {
     pthread_mutex_lock(&philo_s->forks[philo_s->id]);
-    printf("take fork %zu\n",philo_s->id);
+    u_printf(philo_s, "take fork");
     if (philo_s->id + 1 == philo_s->philo_info->nb_philo)
         pthread_mutex_lock(&philo_s->forks[0]);
     else
         pthread_mutex_lock(&philo_s->forks[philo_s->id + 1]);
-    printf("take fork 2 %zu\n",philo_s->id);
-    printf("eating  %zu\n",philo_s->id);
-    usleep(2000);
+    u_printf(philo_s, "take fork tow");
+    u_printf(philo_s, "eating");
+    philo_s->nb_eat = philo_s->nb_eat + 1;
+    philo_s->last_meal = timestamp(philo_s->philo_info);
+    ft_usleep(philo_s->philo_info->time_eat, philo_s->philo_info);
     pthread_mutex_unlock(&philo_s->forks[philo_s->id]);
     if (philo_s->id + 1 == philo_s->philo_info->nb_philo)
         pthread_mutex_unlock(&philo_s->forks[0]);
@@ -142,7 +182,7 @@ void    sleeping(t_philo *philo_s)
 {
     pthread_mutex_lock(philo_s->msg);
     printf("sleeping %zu \n",philo_s->id);
-    usleep(2000);
+    ft_usleep(philo_s->philo_info->time_sleep, philo_s->philo_info);
     pthread_mutex_unlock(philo_s->msg);
 }
 
@@ -156,6 +196,7 @@ void    *routine(void *arg)
         eating(philo_s);
         sleeping(philo_s);
         thinking(philo_s);
+        usleep(50);
     }
     return (NULL);
 }
@@ -184,7 +225,6 @@ int main(int argc, char **argv)
     t_philo *philo_s;
     int     i;
 
-    i = 0;
     philo_info = malloc(sizeof(t_info));
     if (argc < 5 || argc > 6 || init_info(argc ,argv, philo_info) == -1)
     {
@@ -195,9 +235,27 @@ int main(int argc, char **argv)
     forks = create_forks(philo_info);
     philo_s = create_philos(philo_info, forks);
     create_threads(philo_info, philo_s);
-    while (i < philo_info->nb_philo)
+    while (1)
     {
-        pthread_join(philo_s[i].threads[i],NULL);
-        i++;
-    }   
+        i = 0;
+        while (i < philo_info->nb_philo)
+        {
+            if (timestamp(philo_info) - philo_s[i].last_meal > philo_info->time_die)
+            {
+                printf("philo died\n");
+                return (2);
+            }
+            if (philo_info->nb_must_eat != -1 && philo_s[i].nb_eat >= philo_info->nb_must_eat)
+                philo_info->nb_philo_eat = philo_info->nb_philo_eat + 1;
+            i++;
+        }
+        if (philo_info->nb_must_eat != -1)
+        {
+            if (philo_info->nb_philo_eat == philo_info->nb_philo)
+                return (3);
+            else
+                philo_info->nb_philo_eat = 0;
+        }
+        usleep(100);
+    }
 }
