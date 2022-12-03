@@ -13,6 +13,7 @@ typedef struct s_info
     long            time_sleep;
     long            nb_must_eat;
     long            nb_philo_eat;
+    pthread_mutex_t n;
 } t_info;
 
 typedef struct s_philo
@@ -24,6 +25,7 @@ typedef struct s_philo
     pthread_t       *threads;
     long            last_meal;
     int             nb_eat;
+    int             n_eat;
 } t_philo;
 
 
@@ -104,6 +106,7 @@ int init_info(int argc, char **argv, t_info *philo_info)
     philo_info->time_eat = ft_atoi(argv[3]);
     philo_info->time_sleep = ft_atoi(argv[4]);
     philo_info->nb_philo_eat = 0;
+    pthread_mutex_init(&(philo_info->n), NULL);
     if (argc == 6)
         philo_info->nb_must_eat = ft_atoi(argv[5]);
     else
@@ -145,7 +148,8 @@ t_philo *create_philos(t_info *philo_info, pthread_mutex_t *forks)
         philo_s[i].msg = &msg;
         philo_s[i].threads = threads;
         philo_s[i].philo_info = philo_info;
-        philo_s[i].last_meal = -1;
+        philo_s[i].last_meal = timestamp(philo_info);
+        philo_s[i].n_eat = 0;
         i++;
     }
     return (philo_s);
@@ -168,9 +172,14 @@ void    eating(t_philo *philo_s)
         pthread_mutex_lock(&philo_s->forks[philo_s->id + 1]);
     u_printf(philo_s, "take fork tow");
     u_printf(philo_s, "eating");
+    
+    philo_s->n_eat = 1;
+    pthread_mutex_lock(&(philo_s->philo_info->n));
     philo_s->nb_eat = philo_s->nb_eat + 1;
     philo_s->last_meal = timestamp(philo_s->philo_info);
+    pthread_mutex_unlock(&(philo_s->philo_info->n));
     ft_usleep(philo_s->philo_info->time_eat, philo_s->philo_info);
+    philo_s->n_eat = 0;
     pthread_mutex_unlock(&philo_s->forks[philo_s->id]);
     if (philo_s->id + 1 == philo_s->philo_info->nb_philo)
         pthread_mutex_unlock(&philo_s->forks[0]);
@@ -196,7 +205,6 @@ void    *routine(void *arg)
         eating(philo_s);
         sleeping(philo_s);
         thinking(philo_s);
-        usleep(50);
     }
     return (NULL);
 }
@@ -224,6 +232,8 @@ int main(int argc, char **argv)
     pthread_mutex_t *forks;
     t_philo *philo_s;
     int     i;
+    long    x;
+    int     y;
 
     philo_info = malloc(sizeof(t_info));
     if (argc < 5 || argc > 6 || init_info(argc ,argv, philo_info) == -1)
@@ -240,14 +250,19 @@ int main(int argc, char **argv)
         i = 0;
         while (i < philo_info->nb_philo)
         {
-            if (timestamp(philo_info) - philo_s[i].last_meal > philo_info->time_die)
+            pthread_mutex_lock(&(philo_info->n));
+            x = timestamp(philo_info) - philo_s[i].last_meal;
+            y = philo_s[i].nb_eat;
+            pthread_mutex_unlock(&(philo_info->n));
+            if (x > philo_info->time_die && philo_s[i].n_eat == 0)
             {
                 printf("philo died\n");
                 return (2);
             }
-            if (philo_info->nb_must_eat != -1 && philo_s[i].nb_eat >= philo_info->nb_must_eat)
+            if (philo_info->nb_must_eat != -1 && y >= philo_info->nb_must_eat)
                 philo_info->nb_philo_eat = philo_info->nb_philo_eat + 1;
             i++;
+            
         }
         if (philo_info->nb_must_eat != -1)
         {
