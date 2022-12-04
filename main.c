@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <sys/time.h>
 
-
 typedef struct s_info
 {
     long            nb_philo;
@@ -42,7 +41,7 @@ long long   timestamp(t_info  *philo_info)
     long        mili;
 
     gettimeofday(&tv, NULL);
-    mili = tv.tv_sec * 1000LL + tv.tv_usec / 1000;
+    mili = tv.tv_sec * 1000 + tv.tv_usec / 1000;
     return (mili);
 }
 
@@ -226,6 +225,50 @@ void    create_threads(t_info *philo_info, t_philo *philo_s)
     }
 }
 
+int    check_died_n(t_info *philo_info, t_philo *philo_s, int i)
+{
+    int     y;
+    long    x;
+
+    pthread_mutex_lock(&(philo_info->n));
+    x = timestamp(philo_info) - philo_s[i].last_meal;
+    y = philo_s[i].nb_eat;
+    pthread_mutex_unlock(&(philo_info->n));
+    if (x > philo_info->time_die && philo_s[i].n_eat == 0)
+    {
+        pthread_mutex_lock(philo_s->msg);
+        printf("philo died\n");
+        return (-1);
+    }
+    if (philo_info->nb_must_eat != -1 && y >= philo_info->nb_must_eat)
+        philo_info->nb_philo_eat = philo_info->nb_philo_eat + 1;
+    return (0);
+}
+
+void    check_died(t_info *philo_info, t_philo *philo_s)
+{
+    int     i;
+
+    while (1)
+    {
+        i = 0;
+        while (i < philo_info->nb_philo)
+        {
+            if (check_died_n(philo_info, philo_s, i) == -1)
+                return ;
+            i++;
+        }
+        if (philo_info->nb_must_eat != -1)
+        {
+            if (philo_info->nb_philo_eat == philo_info->nb_philo)
+                return ;
+            else
+                philo_info->nb_philo_eat = 0;
+        }
+        usleep(100);
+    }
+}
+
 int main(int argc, char **argv)
 {
     t_info  *philo_info;
@@ -245,32 +288,5 @@ int main(int argc, char **argv)
     forks = create_forks(philo_info);
     philo_s = create_philos(philo_info, forks);
     create_threads(philo_info, philo_s);
-    while (1)
-    {
-        i = 0;
-        while (i < philo_info->nb_philo)
-        {
-            pthread_mutex_lock(&(philo_info->n));
-            x = timestamp(philo_info) - philo_s[i].last_meal;
-            y = philo_s[i].nb_eat;
-            pthread_mutex_unlock(&(philo_info->n));
-            if (x > philo_info->time_die && philo_s[i].n_eat == 0)
-            {
-                printf("philo died\n");
-                return (2);
-            }
-            if (philo_info->nb_must_eat != -1 && y >= philo_info->nb_must_eat)
-                philo_info->nb_philo_eat = philo_info->nb_philo_eat + 1;
-            i++;
-            
-        }
-        if (philo_info->nb_must_eat != -1)
-        {
-            if (philo_info->nb_philo_eat == philo_info->nb_philo)
-                return (3);
-            else
-                philo_info->nb_philo_eat = 0;
-        }
-        usleep(100);
-    }
+    check_died(philo_info, philo_s);
 }
